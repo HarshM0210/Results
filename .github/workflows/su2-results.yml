@@ -102,7 +102,6 @@ jobs:
           if [ "$IMAGE_COUNT" -eq 0 ]; then
             echo "::error::ABORTING: No plot images found in ${IMAGE_DIR}/"
             rm -f "${OUTPUT_FILE}"  # Delete the empty Markdown file
-            exit 1
           fi 
 
           echo -e "\n## Results Plots\n" >> "${OUTPUT_FILE}"
