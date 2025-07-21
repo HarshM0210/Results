@@ -53,27 +53,31 @@ jobs:
         with:
           ref: "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
 
-      # --- Step 4: Generate Markdown from Template ---
       - name: Prepare Markdown file
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
+          # Initialize variables
           IMAGE_COUNT=0
           SANITIZED_CASE_NAME=$(echo "${{ github.event.inputs.case_name }}" | tr -dc '[:alnum:] ')
           SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
+
           # Define paths
           TEMPLATE="template_README.md"
+          OUTPUT_DIR="_vandv"
+          OUTPUT_FILE="${OUTPUT_DIR}/${SANITIZED_CASE_CODE}.md"
+          IMAGE_DIR="vandv_files/${SANITIZED_CASE_CODE}"
+
+          # Validate inputs and paths
           if [ ! -f "${TEMPLATE}" ]; then
             echo "::error::Template ${TEMPLATE} not found!"
             exit 1
           fi
-          OUTPUT_DIR="_vandv"
+
           if [ ! -d "${OUTPUT_DIR}" ]; then
             echo "::error::Directory ${OUTPUT_DIR} must exist in the repository. Deploy it first."
             exit 1
           fi
 
-          OUTPUT_FILE="${OUTPUT_DIR}/$SANITIZED_CASE_CODE.md"
-          IMAGE_DIR="vandv_files/$SANITIZED_CASE_CODE"
           if [ ! -d "${IMAGE_DIR}" ]; then
             echo "::error::Image directory ${IMAGE_DIR} not found!"
             exit 1
@@ -86,36 +90,30 @@ jobs:
 
           # Update front matter and write to new file
           sed \
-            -e "s/{Case_Code}/$SANITIZED_CASE_CODE/g" \
-            -e "s/Your Case Study Title/$SANITIZED_CASE_NAME/g" \
+            -e "s/{Case_Code}/${SANITIZED_CASE_CODE}/g" \
+            -e "s/Your Case Study Title/${SANITIZED_CASE_NAME}/g" \
             "${TEMPLATE}" > "${OUTPUT_FILE}"
 
-          find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | \
-          while read -r dir; do
-            find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | \
-            while read -r img; do
-              ((IMAGE_COUNT++))
-            done
-          done 
+          # Count images first (using a more compatible approach)
+          IMAGE_COUNT=$(find "${IMAGE_DIR}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | wc -l)
 
           # Strict validation
-          if [ "$IMAGE_COUNT" -eq 0 ]; then
+          if [ "${IMAGE_COUNT}" -eq 0 ]; then
             echo "::error::ABORTING: No plot images found in ${IMAGE_DIR}/"
             rm -f "${OUTPUT_FILE}"  # Delete the empty Markdown file
-          fi 
+            exit 1
+          fi
 
           echo -e "\n## Results Plots\n" >> "${OUTPUT_FILE}"
 
-          # Dynamically find folders matching {CASE_CODE}_*
-          find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | \
-          while read -r dir; do
+          # Dynamically find and process images
+          find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | while read -r dir; do
             # Add header for each configuration
             folder_name=$(basename "${dir}")
             echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
-
+            
             # Process images
-            find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | \
-            while read -r img; do
+            find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
               rel_path="${img#./}"
               echo "<img src=\"${rel_path}\" alt=\"$(basename "${img}")\" style=\"max-width:100%;\">" >> "${OUTPUT_FILE}"
               echo "" >> "${OUTPUT_FILE}"
