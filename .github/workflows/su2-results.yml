@@ -153,7 +153,7 @@ jobs:
           fi
 
           # Check if case already exists using yq
-          EXISTS=$(yq eval ".vandv.[] | select(.title == \"${FLOW_TYPE}\").vandv.[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+          EXISTS=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
           if [ -n "${EXISTS}" ]; then
             echo "Case ${CASE_CODE} already exists. Skipping update."
             rm -f "${VANDV_YML}.bak"
@@ -161,14 +161,10 @@ jobs:
           fi
 
           # Update YAML using yq only
-          if [[ "${FLOW_TYPE}" == "Compressible Flow" ]]; then
-            yq eval -i "(.vandv.[] | select(.title == \"Compressible Flow\").vandv) += [\"${CASE_CODE}\"]" "${VANDV_YML}"
-          else
-            yq eval -i "(.vandv.[] | select(.title == \"Incompressible Flow\").vandv) += [\"${CASE_CODE}\"]" "${VANDV_YML}"
-          fi
+          yq eval -i ".[] | select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"]" "${VANDV_YML}"
 
           # Verify the update
-          UPDATED=$(yq eval ".vandv.[] | select(.title == \"${FLOW_TYPE}\").vandv.[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+          UPDATED=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
           if [ -z "${UPDATED}" ]; then
             echo "::error::Failed to add case code to YAML"
             mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
