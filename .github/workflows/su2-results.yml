@@ -131,6 +131,12 @@ jobs:
       - name: Update V&V Listing
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
+          # Ensure we're using the modern Go version of yq
+          if ! command -v yq &>/dev/null || yq --version | grep -q "python"; then
+            echo "::error::yq (Go version) not installed"
+            exit 1
+          fi
+
           # Define paths and variables
           SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
           VANDV_YML="_data/vandv.yml"
@@ -140,25 +146,31 @@ jobs:
           # Create backup
           cp "${VANDV_YML}" "${VANDV_YML}.bak"
 
-          # Check if case already exists
-          EXISTING_CODES=$(yq eval '.vandv[] | select(.title == "'"${FLOW_TYPE}"'").vandv[]' "${VANDV_YML}" || echo "")
-          if echo "${EXISTING_CODES}" | grep -q "^${CASE_CODE}$"; then
+          # Verify YAML structure first
+          if ! yq eval '.' "${VANDV_YML}" >/dev/null 2>&1; then
+            echo "::error::Invalid YAML structure in ${VANDV_YML}"
+            exit 1
+          fi
+
+          # Check if case already exists using yq
+          EXISTS=$(yq eval ".vandv.[] | select(.title == \"${FLOW_TYPE}\").vandv.[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+          if [ -n "${EXISTS}" ]; then
             echo "Case ${CASE_CODE} already exists. Skipping update."
             rm -f "${VANDV_YML}.bak"
             exit 0
           fi
 
-          # Update YAML - different approach for more reliable modification
+          # Update YAML using yq only
           if [[ "${FLOW_TYPE}" == "Compressible Flow" ]]; then
-            yq eval '(.vandv[] | select(.title == "Compressible Flow").vandv) += ["'"${CASE_CODE}"'"]' -i "${VANDV_YML}"
+            yq eval -i "(.vandv.[] | select(.title == \"Compressible Flow\").vandv) += [\"${CASE_CODE}\"]" "${VANDV_YML}"
           else
-            yq eval '(.vandv[] | select(.title == "Incompressible Flow").vandv) += ["'"${CASE_CODE}"'"]' -i "${VANDV_YML}"
+            yq eval -i "(.vandv.[] | select(.title == \"Incompressible Flow\").vandv) += [\"${CASE_CODE}\"]" "${VANDV_YML}"
           fi
 
-          # Verify the update was successful
-          UPDATED_CODES=$(yq eval '.vandv[] | select(.title == "'"${FLOW_TYPE}"'").vandv[]' "${VANDV_YML}" || echo "")
-          if ! echo "${UPDATED_CODES}" | grep -q "^${CASE_CODE}$"; then
-            echo "::error::Failed to update YAML file - case not found after update"
+          # Verify the update
+          UPDATED=$(yq eval ".vandv.[] | select(.title == \"${FLOW_TYPE}\").vandv.[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+          if [ -z "${UPDATED}" ]; then
+            echo "::error::Failed to add case code to YAML"
             mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
             exit 1
           fi
