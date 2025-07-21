@@ -161,7 +161,7 @@ jobs:
           fi
 
           # Update YAML using yq only
-          yq eval -i ".[] | select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"]" "${VANDV_YML}"
+          yq eval -i ".[] |= (select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"])" "${VANDV_YML}"
 
           # Verify the update
           UPDATED=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
