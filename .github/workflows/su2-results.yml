@@ -123,11 +123,11 @@ jobs:
           # Verify creation
           echo "Generated ${OUTPUT_FILE} with ${IMAGE_COUNT} images linked."
 
-      - name: Install yq
+      - name: Install yq (Go version)
         run: |
-          sudo apt-get update && sudo apt-get install -y yq
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
-      # --- Step 5: Update vandv.yml ---
       - name: Update V&V Listing
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
@@ -140,34 +140,26 @@ jobs:
           # Create backup
           cp "${VANDV_YML}" "${VANDV_YML}.bak"
 
-          # Check if case already exists
+          # Check if case already exists (using proper yq syntax)
           if yq eval '.vandv[] | select(.title == "Compressible Flow" or .title == "Incompressible Flow").vandv[]' "${VANDV_YML}" | grep -q "^${CASE_CODE}$"; then
             echo "Case ${CASE_CODE} already exists. Skipping update."
             rm -f "${VANDV_YML}.bak"
             exit 0
           fi
 
-          # Update YAML using yq (recommended approach)
+          # Update YAML using yq (proper syntax)
           if [[ "${FLOW_TYPE}" == "Compressible Flow" ]]; then
-            yq eval '.vandv[] |= select(.title == "Compressible Flow").vandv += ["'"${CASE_CODE}"'"]' "${VANDV_YML}" > "${VANDV_YML}.tmp"
+            yq eval --inplace '.vandv[] |= (select(.title == "Compressible Flow").vandv += ["'"${CASE_CODE}"'"]' "${VANDV_YML}"
           else
-            yq eval '.vandv[] |= select(.title == "Incompressible Flow").vandv += ["'"${CASE_CODE}"'"]' "${VANDV_YML}" > "${VANDV_YML}.tmp"
+            yq eval --inplace '.vandv[] |= (select(.title == "Incompressible Flow").vandv += ["'"${CASE_CODE}"'"]' "${VANDV_YML}"
           fi
 
-          # Verify and replace
-          if yq eval '.' "${VANDV_YML}.tmp" >/dev/null 2>&1; then
-            # SUCCESS PATH
-            mv "${VANDV_YML}.tmp" "${VANDV_YML}"  # Atomic replacement
-            echo "Added ${CASE_CODE} to ${FLOW_TYPE} section"
-          else
-          # FAILURE PATH
-            echo "::error::Failed to update YAML file - invalid syntax generated"
-            [ -f "${VANDV_YML}.bak" ] && mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Conditional restore
+          # Verify the update
+          if ! yq eval '.vandv[] | select(.title == "'"${FLOW_TYPE}"'").vandv[]' "${VANDV_YML}" | grep -q "^${CASE_CODE}$"; then
+            echo "::error::Failed to update YAML file - case not found after update"
+            mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
             exit 1
           fi
 
-          # GUARANTEED CLEANUP (runs in both success/failure cases)
-          cleanup() {
-            rm -f "${VANDV_YML}.bak" "${VANDV_YML}.tmp"
-          }
-          trap cleanup EXIT
+          echo "Added ${CASE_CODE} to ${FLOW_TYPE} section"
+          rm -f "${VANDV_YML}.bak"
