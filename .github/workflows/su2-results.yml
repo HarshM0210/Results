@@ -1,0 +1,176 @@
+name: SU2 Results Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      case_code:
+        description: "Validation Case Code (e.g., 2DML)"
+        required: true
+        type: string
+      case_name:
+        description: "Validation Case Name (e.g. 2D Mixing Layer)"
+        required: true
+        type: string
+      flow_condition:
+        description: "Incompressible Flow or Compressible Flow"
+        required: true
+        type: choice
+        options:
+          - Incompressible Flow
+          - Compressible Flow
+      author_name:
+        description: "Author's Name"
+        required: true
+        type: string
+
+jobs:
+  process-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      # --- Step 1: Checkout Default Branch (e.g., main) ---
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+
+      # --- Step 2: Verify Target Branch Exists ---
+      - name: Check if target branch exists
+        id: branch-check
+        env:
+          TARGET_BRANCH: "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
+        run: |
+          if git ls-remote --heads origin $TARGET_BRANCH | grep -q $TARGET_BRANCH; then
+            echo "Branch $TARGET_BRANCH exists. Proceeding..."
+            echo "branch_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Branch $TARGET_BRANCH does not exist. Aborting."
+            echo "branch_exists=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      # --- Step 3: Checkout Target Branch (if exists) ---
+      - name: Checkout target branch
+        if: steps.branch-check.outputs.branch_exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
+
+      # --- Step 4: Generate Markdown from Template ---
+      - name: Prepare Markdown file
+        if: steps.branch-check.outputs.branch_exists == 'true'
+        run: |
+          IMAGE_COUNT=0
+          SANITIZED_CASE_NAME=$(echo "${{ github.event.inputs.case_name }}" | tr -dc '[:alnum:] ')
+          SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
+          # Define paths
+          TEMPLATE="template_README.md"
+          if [ ! -f "${TEMPLATE}" ]; then
+            echo "::error::Template ${TEMPLATE} not found!"
+            exit 1
+          fi
+          OUTPUT_DIR="_vandv"
+          if [ ! -d "${OUTPUT_DIR}" ]; then
+            echo "::error::Directory ${OUTPUT_DIR} must exist in the repository. Deploy it first."
+            exit 1
+          fi
+
+          OUTPUT_FILE="${OUTPUT_DIR}/$SANITIZED_CASE_CODE.md"
+          IMAGE_DIR="vandv_files/$SANITIZED_CASE_CODE"
+          if [ ! -d "${IMAGE_DIR}" ]; then
+            echo "::error::Image directory ${IMAGE_DIR} not found!"
+            exit 1
+          fi
+
+          if ! grep -q '{Case_Code}' "${TEMPLATE}" || ! grep -q 'Your Case Study Title' "${TEMPLATE}"; then
+            echo "::error::Template missing required placeholders"
+            exit 1
+          fi
+
+          # Update front matter and write to new file
+          sed \
+            -e "s/{Case_Code}/$SANITIZED_CASE_CODE/g" \
+            -e "s/Your Case Study Title/$SANITIZED_CASE_NAME/g" \
+            "${TEMPLATE}" > "${OUTPUT_FILE}"
+
+          find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | \
+          while read -r dir; do
+            find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | \
+            while read -r img; do
+              ((IMAGE_COUNT++))
+            done
+          done 
+
+          # Strict validation
+          if [ "$IMAGE_COUNT" -eq 0 ]; then
+            echo "::error::ABORTING: No plot images found in ${IMAGE_DIR}/"
+            rm -f "${OUTPUT_FILE}"  # Delete the empty Markdown file
+            exit 1
+          fi 
+
+          echo -e "\n## Results Plots\n" >> "${OUTPUT_FILE}"
+
+          # Dynamically find folders matching {CASE_CODE}_*
+          find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | \
+          while read -r dir; do
+            # Add header for each configuration
+            folder_name=$(basename "${dir}")
+            echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
+
+            # Process images
+            find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | \
+            while read -r img; do
+              rel_path="${img#./}"
+              echo "<img src=\"${rel_path}\" alt=\"$(basename "${img}")\" style=\"max-width:100%;\">" >> "${OUTPUT_FILE}"
+              echo "" >> "${OUTPUT_FILE}"
+            done
+          done
+
+          # Verify creation
+          echo "Generated ${OUTPUT_FILE} with ${IMAGE_COUNT} images linked."
+
+      - name: Install yq
+        run: |
+          sudo apt-get update && sudo apt-get install -y yq
+
+      # --- Step 5: Update vandv.yml ---
+      - name: Update V&V Listing
+        if: steps.branch-check.outputs.branch_exists == 'true'
+        run: |
+          # Define paths
+          SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
+          VANDV_YML="_data/vandv.yml"
+          CASE_CODE="$SANITIZED_CASE_CODE"
+          FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
+
+          # Create backup
+          cp "${VANDV_YML}" "${VANDV_YML}.bak"
+
+          # Check if case already exists
+          if yq eval '.vandv[] | select(.title == "Compressible Flow" or .title == "Incompressible Flow").vandv[]' "${VANDV_YML}" | grep -q "^${CASE_CODE}$"; then
+            echo "Case ${CASE_CODE} already exists. Skipping update."
+            rm -f "${VANDV_YML}.bak"
+            exit 0
+          fi
+
+          # Update YAML using yq (recommended approach)
+          if [[ "${FLOW_TYPE}" == "Compressible Flow" ]]; then
+            yq eval '.vandv[] |= select(.title == "Compressible Flow").vandv += ["'"${CASE_CODE}"'"]' "${VANDV_YML}" > "${VANDV_YML}.tmp"
+          else
+            yq eval '.vandv[] |= select(.title == "Incompressible Flow").vandv += ["'"${CASE_CODE}"'"]' "${VANDV_YML}" > "${VANDV_YML}.tmp"
+          fi
+
+          # Verify and replace
+          if yq eval '.' "${VANDV_YML}.tmp" >/dev/null 2>&1; then
+            # SUCCESS PATH
+            mv "${VANDV_YML}.tmp" "${VANDV_YML}"  # Atomic replacement
+            echo "Added ${CASE_CODE} to ${FLOW_TYPE} section"
+          else
+          # FAILURE PATH
+            echo "::error::Failed to update YAML file - invalid syntax generated"
+            [ -f "${VANDV_YML}.bak" ] && mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Conditional restore
+            exit 1
+          fi
+
+          # GUARANTEED CLEANUP (runs in both success/failure cases)
+          cleanup() {
+            rm -f "${VANDV_YML}.bak" "${VANDV_YML}.tmp"
+          }
+          trap cleanup EXIT
