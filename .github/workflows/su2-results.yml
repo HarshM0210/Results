@@ -182,10 +182,7 @@ jobs:
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-
-          git config pull.rebase true 
-          git pull origin main 
+          git config --global user.email "actions@github.com" 
 
           git add .
           git status
