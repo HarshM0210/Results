@@ -19,7 +19,7 @@ on:
           - Incompressible Flow
           - Compressible Flow
       author_name:
-        description: "Author's Name"
+        description: "Author's Name (e.g. Harsh)"
         required: true
         type: string
 
@@ -97,7 +97,7 @@ jobs:
             -e "s/Your Case Study Title/${SANITIZED_CASE_NAME}/g" \
             "${TEMPLATE}" > "${OUTPUT_FILE}"
 
-          # Count images first (using a more compatible approach)
+          # Count images
           IMAGE_COUNT=$(find "${IMAGE_DIR}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | wc -l)
 
           # Strict validation
@@ -114,9 +114,9 @@ jobs:
             folder_name=$(basename "${dir}")
             echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
             
-            # Process images with correct relative path
+            # Process images with their relative path
             find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
-              # Calculate correct relative path from _vandv/2DML.md to the image
+              # Calculate relative path
               rel_path="../${img#*/vandv_files/}"
               echo "<img src=\"${rel_path}\" alt=\"${folder_name} - $(basename "${img}")\" style=\"width:80%; display: block; margin: 0 auto;\">" >> "${OUTPUT_FILE}"
               echo "" >> "${OUTPUT_FILE}"
@@ -178,13 +178,18 @@ jobs:
           echo "Successfully added ${CASE_CODE} to ${FLOW_TYPE} section"
           rm -f "${VANDV_YML}.bak"
 
+      - name: Rebase before merge
+        run: |
+          git config pull.rebase true
+          git pull origin main
+
       - name: Commit and push changes
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-          git add _vandv/ _data/
+          git add .
           git status
 
           if ! git diff-index --quiet HEAD --; then
