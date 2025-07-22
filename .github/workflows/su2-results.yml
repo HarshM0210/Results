@@ -1,4 +1,4 @@
-name: SU2 Results Pipeline
+name: Publish SU2 Validation Results
 
 on:
   workflow_dispatch:
