@@ -28,11 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # --- Step 1: Checkout Default Branch (e.g., main) ---
-      - name: Checkout main branch
+      - name: Checkout Main Branch
         uses: actions/checkout@v4
 
       # --- Step 2: Verify Target Branch Exists ---
-      - name: Check if target branch exists
+      - name: Check if Target Branch exists
         id: branch-check
         env:
           TARGET_BRANCH: "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
@@ -47,7 +47,7 @@ jobs:
           fi
 
       # --- Step 3: Checkout Target Branch (if exists) ---
-      - name: Checkout target branch
+      - name: Checkout Target Branch
         if: steps.branch-check.outputs.branch_exists == 'true'
         uses: actions/checkout@v4
         with:
@@ -56,7 +56,7 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
-      - name: Prepare Markdown file
+      - name: Prepare Markdown File
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           # Initialize variables
@@ -178,16 +178,14 @@ jobs:
           echo "Successfully added ${CASE_CODE} to ${FLOW_TYPE} section"
           rm -f "${VANDV_YML}.bak"
 
-      - name: Rebase before merge
-        run: |
-          git config pull.rebase true
-          git pull origin main
-
-      - name: Commit and push changes
+      - name: Commit and Push Changes
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+
+          git config pull.rebase true 
+          git pull origin main 
 
           git add .
           git status
