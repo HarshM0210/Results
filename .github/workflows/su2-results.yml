@@ -173,3 +173,25 @@ jobs:
 
           echo "Successfully added ${CASE_CODE} to ${FLOW_TYPE} section"
           rm -f "${VANDV_YML}.bak"
+
+      - name: Commit and push changes
+        if: steps.branch-check.outputs.branch_exists == 'true'
+        run: |
+          # Set git identity
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+          # Add and commit changes
+          git add _vandv/ _data/
+
+          # Debug: Show git status
+          git status
+
+          # Only commit if there are changes
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "Automated update: Added ${{ github.event.inputs.case_code }} case"
+            git push origin "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
+            echo "Changes pushed successfully"
+          else
+            echo "No changes to commit"
+          fi
