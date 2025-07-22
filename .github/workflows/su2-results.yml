@@ -111,18 +111,18 @@ jobs:
 
           # Dynamically find and process images
           find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | while read -r dir; do
-              # Add header for each configuration
-              folder_name=$(basename "${dir}")
-              echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
-              
-              # Process images with correct relative path
-              find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
-                  # Calculate correct relative path from _vandv/ to the image
-                  rel_path="../../${img#./}"
-                  echo "<img src=\"${rel_path}\" alt=\"${folder_name} - $(basename "${img}")\" width=\"600\">" >> "${OUTPUT_FILE}"
-                  echo "" >> "${OUTPUT_FILE}"
-              done
+            folder_name=$(basename "${dir}")
+            echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
+            
+            # Process images with correct relative path
+            find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
+              # Calculate correct relative path from _vandv/2DML.md to the image
+              rel_path="../${img#*/vandv_files/}"
+              echo "<img src=\"${rel_path}\" alt=\"${folder_name} - $(basename "${img}")\" style=\"width:80%; display: block; margin: 0 auto;\">" >> "${OUTPUT_FILE}"
+              echo "" >> "${OUTPUT_FILE}"
+            done
           done
+
 
           # Verify creation
           echo "Generated ${OUTPUT_FILE} with ${IMAGE_COUNT} images linked."
