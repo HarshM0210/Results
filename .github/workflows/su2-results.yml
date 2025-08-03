@@ -267,9 +267,9 @@ jobs:
               
               # Create new section in a temporary file
               TEMP_FILE=$(mktemp)
-              echo "- title: \"${NEW_SECTION_TITLE}\"" > "${TEMP_FILE}"
+              echo "- title: ${NEW_SECTION_TITLE}" > "${TEMP_FILE}"
               echo "  vandv:" >> "${TEMP_FILE}"
-              echo "    - \"${NEW_ENTRY}\"" >> "${TEMP_FILE}"
+              echo "    - ${NEW_ENTRY}" >> "${TEMP_FILE}"
 
               # Merge with existing content using yq
               yq eval-all 'select(fileIndex == 0) *+ select(fileIndex == 1)' "${VANDV_YML}" "${TEMP_FILE}" > "${VANDV_YML}.tmp"
