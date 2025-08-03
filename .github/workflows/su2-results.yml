@@ -254,16 +254,24 @@ jobs:
               exit 1
             fi
 
+            # Improved section existence check
             SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
             if [ -z "${SECTION_EXISTS}" ] || [ "${SECTION_EXISTS}" -eq 0 ]; then
               echo "Adding new '${NEW_SECTION_TITLE}' section..."
               
-              # Add new section with the single entry
-              yq eval -i ". += {\"title\": \"${NEW_SECTION_TITLE}\", \"vandv\": [\"${NEW_ENTRY}\"]}" "${VANDV_YML}"
+              # SAFER way to append new section without affecting existing ones
+              yq eval -i '
+                . as $root |
+                if ($root | map(select(.title == "'"${NEW_SECTION_TITLE}"'")) | length) == 0 then
+                  $root + [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
+                else
+                  $root
+                end
+              ' "${VANDV_YML}"
               
               # Verify the update
-              UPDATED_SECTION=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}")
-              if [ -z "${UPDATED_SECTION}" ]; then
+              UPDATED_SECTION=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
+              if [ -z "${UPDATED_SECTION}" ] || [ "${UPDATED_SECTION}" -eq 0 ]; then
                 echo "::error::Failed to add new section to YAML"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
                 exit 1
@@ -273,7 +281,6 @@ jobs:
             else
               echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
             fi
-
           else
             # Define paths and variables
             SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
