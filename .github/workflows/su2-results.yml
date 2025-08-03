@@ -1,4 +1,4 @@
-name: Publish SU2 Validation Cases Results
+\name: Publish SU2 Validation Cases Results
 
 on:
   workflow_dispatch:
@@ -151,9 +151,10 @@ jobs:
                   echo "" >> "${OUTPUT_FILE}"
                 done
               done
-
-              # Verify creation
-              echo "Generated ${OUTPUT_FILE}"
+            fi
+          done  
+          # Verify creation
+          echo "Generated ${OUTPUT_FILE}"
 
       - name: Prepare Markdown File For Specific Validation Case
         if: steps.branch-check.outputs.branch_exists == 'true' && inputs.case_code != 'All' && inputs.case_name != 'All'
