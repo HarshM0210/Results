@@ -256,67 +256,51 @@ jobs:
             NEW_SECTION_TITLE="All Validation Cases"
             NEW_ENTRY="All_Validation_Cases"
 
-            # Use a temporary file approach for absolute safety
-            TEMP_FILE=$(mktemp)
+            # Check if section exists
+            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
             
-            # Process the YAML with explicit structure preservation
-            yq eval '
-              if (.[] | select(.title == "'"${NEW_SECTION_TITLE}"'") | length > 0 then
-                . # Do nothing if section exists
-              else
-                . += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
-              end
-            ' "${VANDV_YML}" > "${TEMP_FILE}"
-            
-            # Verify the operation was successful
-            if [ $? -ne 0 ]; then
-              echo "::error::Failed to process YAML file"
-              rm -f "${TEMP_FILE}"
-              exit 1
+            if [ "${SECTION_EXISTS}" -eq 0 ]; then
+              echo "Adding new '${NEW_SECTION_TITLE}' section..."
+              
+              # Simplified and more reliable append operation
+              yq eval -i ". += {\"title\": \"${NEW_SECTION_TITLE}\", \"vandv\": [\"${NEW_ENTRY}\"]}" "${VANDV_YML}"
+              
+              # Verify update
+              if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}") -eq 0 ]; then
+                echo "::error::Failed to add new section to YAML"
+                mv "${VANDV_YML}.bak" "${VANDV_YML}"
+                exit 1
+              fi
+              
+              echo "Successfully added '${NEW_SECTION_TITLE}' section"
+            else
+              echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
             fi
-            
-            # Verify the section was added (if needed)
-            if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${TEMP_FILE}") -eq 0 ] && 
-              [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}") -eq 0 ]; then
-              echo "::error::Failed to add new section"
-              rm -f "${TEMP_FILE}"
-              exit 1
-            fi
-            
-            # Replace original file only after successful verification
-            mv "${TEMP_FILE}" "${VANDV_YML}"
-            echo "Successfully updated YAML structure"
 
           else
-            # Your existing specific case code that works
+            # Your working specific case code
             SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
             CASE_CODE="$SANITIZED_CASE_CODE"
             FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
 
             # Check if case exists
-            if [ $(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\") | length" "${VANDV_YML}") -ne 0 ]; then
+            EXISTS=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+            if [ -n "${EXISTS}" ]; then
               echo "Case ${CASE_CODE} already exists. Skipping update."
               rm -f "${VANDV_YML}.bak"
               exit 0
             fi
 
-            # Update specific flow type section using temp file
-            TEMP_FILE=$(mktemp)
-            yq eval '
-              .[] |= (
-                select(.title == "'"${FLOW_TYPE}"'") |
-                .vandv += ["'"${CASE_CODE}"'"]
-              )
-            ' "${VANDV_YML}" > "${TEMP_FILE}"
-            
+            # Update YAML
+            yq eval -i ".[] |= (select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"])" "${VANDV_YML}"
+
             # Verify update
-            if [ $(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\") | length" "${TEMP_FILE}") -eq 0 ]; then
+            UPDATED=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+            if [ -z "${UPDATED}" ]; then
               echo "::error::Failed to add case code to YAML"
-              rm -f "${TEMP_FILE}"
+              mv "${VANDV_YML}.bak" "${VANDV_YML}"
               exit 1
             fi
-            
-            mv "${TEMP_FILE}" "${VANDV_YML}"
           fi
 
           echo "Successful update to vandv.yml"
