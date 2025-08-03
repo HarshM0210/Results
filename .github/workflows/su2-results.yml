@@ -256,22 +256,28 @@ jobs:
             NEW_SECTION_TITLE="All Validation Cases"
             NEW_ENTRY="All_Validation_Cases"
 
-            # COMPLETELY NEW APPROACH - rebuild the YAML structure properly
-            TEMP_FILE=$(mktemp)
+            # Check if section exists without modifying file
+            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
             
-            # First remove any existing duplicates
-            yq eval '
-              . | filter(.title != "'"${NEW_SECTION_TITLE}"'")
-            ' "${VANDV_YML}" > "${TEMP_FILE}"
-            
-            # Then add the section back exactly once
-            yq eval -i '
-              . += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
-            ' "${TEMP_FILE}"
-            
-            # Replace original only after successful rebuild
-            mv "${TEMP_FILE}" "${VANDV_YML}"
-            echo "Successfully rebuilt YAML structure"
+            if [ "${SECTION_EXISTS}" -eq 0 ]; then
+              echo "Adding new '${NEW_SECTION_TITLE}' section..."
+              
+              # SAFEST METHOD: Use yq to append while preserving all existing content
+              yq eval -i '
+                . += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
+              ' "${VANDV_YML}"
+              
+              # Verify update
+              if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}") -eq 0 ]; then
+                echo "::error::Failed to add new section to YAML"
+                mv "${VANDV_YML}.bak" "${VANDV_YML}"
+                exit 1
+              fi
+              
+              echo "Successfully added '${NEW_SECTION_TITLE}' section"
+            else
+              echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
+            fi
 
           else
             # Your working specific case code
