@@ -1,4 +1,4 @@
-\name: Publish SU2 Validation Cases Results
+name: Publish SU2 Validation Cases Results
 
 on:
   workflow_dispatch:
