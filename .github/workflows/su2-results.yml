@@ -265,40 +265,39 @@ jobs:
             else
               echo "Adding new '${NEW_SECTION_TITLE}' section..."
               
-              # SAFEST METHOD: Use explicit array construction
+              # Create new section in a temporary file
               TEMP_FILE=$(mktemp)
+              echo "- title: \"${NEW_SECTION_TITLE}\"" > "${TEMP_FILE}"
+              echo "  vandv:" >> "${TEMP_FILE}"
+              echo "    - \"${NEW_ENTRY}\"" >> "${TEMP_FILE}"
+
+              # Merge with existing content using yq
+              yq eval-all 'select(fileIndex == 0) *+ select(fileIndex == 1)' "${VANDV_YML}" "${TEMP_FILE}" > "${VANDV_YML}.tmp"
               
-              # First get existing content (excluding our new section if it exists)
-              yq eval 'del(.[] | select(.title == "'"${NEW_SECTION_TITLE}"'"))' "${VANDV_YML}" > "${TEMP_FILE}"
+              # Verify merge was successful
+              MERGED_COUNT=$(yq eval 'length' "${VANDV_YML}.tmp")
+              ORIGINAL_COUNT=$(yq eval 'length' "${VANDV_YML}")
               
-              # Then append our new section
-              yq eval -i '. += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]' "${TEMP_FILE}"
-              
-              # Verify we have both old and new content
-              OLD_COUNT=$(yq eval 'length' "${VANDV_YML}")
-              NEW_COUNT=$(yq eval 'length' "${TEMP_FILE}")
-              
-              if [ "${NEW_COUNT}" -lt "${OLD_COUNT}" ]; then
-                echo "::error::Content loss detected during update"
-                rm -f "${TEMP_FILE}"
+              if [ "${MERGED_COUNT}" -le "${ORIGINAL_COUNT}" ]; then
+                echo "::error::Failed to properly merge new section"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"
                 exit 1
               fi
               
-              # Verify new section exists
-              if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${TEMP_FILE}") -eq 0 ]; then
-                echo "::error::Failed to add new section"
-                rm -f "${TEMP_FILE}"
+              # Verify new section exists in merged file
+              if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}.tmp") -eq 0 ]; then
+                echo "::error::New section not found in merged file"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"
                 exit 1
               fi
               
-              # Only replace if all checks pass
-              mv "${TEMP_FILE}" "${VANDV_YML}"
+              # Replace original file if all checks pass
+              mv "${VANDV_YML}.tmp" "${VANDV_YML}"
               echo "Successfully added new section while preserving existing content"
+              rm -f "${TEMP_FILE}"
             fi
           else
-            # Your working specific case code
+            # Existing specific case code remains the same
             SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
             CASE_CODE="$SANITIZED_CASE_CODE"
             FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
