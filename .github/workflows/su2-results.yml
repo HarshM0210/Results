@@ -231,19 +231,20 @@ jobs:
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
+          yq --version
 
       - name: Update V&V Listing
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           # Verify yq installation
-          if ! command -v yq &>/dev/null || yq --version | grep -q "python"; then
-            echo "::error::yq (Go version) not installed"
+          if ! command -v yq &>/dev/null; then
+            echo "::error::yq not installed"
             exit 1
           fi
 
           VANDV_YML="_data/vandv.yml"
 
-          # Verify file exists and is valid YAML
+          # Verify file exists
           if [ ! -f "${VANDV_YML}" ]; then
             echo "::error::YAML file ${VANDV_YML} not found"
             exit 1
@@ -256,29 +257,33 @@ jobs:
             NEW_SECTION_TITLE="All Validation Cases"
             NEW_ENTRY="All_Validation_Cases"
 
-            # Check if section exists without modifying file
-            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
-            
-            if [ "${SECTION_EXISTS}" -eq 0 ]; then
+            # Check if section exists
+            if yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}" >/dev/null; then
+              echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
+            else
               echo "Adding new '${NEW_SECTION_TITLE}' section..."
               
-              # SAFEST METHOD: Use yq to append while preserving all existing content
-              yq eval -i '
-                . += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
-              ' "${VANDV_YML}"
+              # SAFEST METHOD: Use temp file
+              TEMP_FILE=$(mktemp)
               
-              # Verify update
-              if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}") -eq 0 ]; then
-                echo "::error::Failed to add new section to YAML"
+              # Get existing content
+              yq eval '.' "${VANDV_YML}" > "${TEMP_FILE}"
+              
+              # Append new section
+              yq eval -i '. += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]' "${TEMP_FILE}"
+              
+              # Verify and replace
+              if yq eval '.' "${TEMP_FILE}" >/dev/null && 
+                yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${TEMP_FILE}" >/dev/null; then
+                mv "${TEMP_FILE}" "${VANDV_YML}"
+                echo "Successfully added new section"
+              else
+                echo "::error::Failed to update YAML"
+                rm -f "${TEMP_FILE}"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"
                 exit 1
               fi
-              
-              echo "Successfully added '${NEW_SECTION_TITLE}' section"
-            else
-              echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
             fi
-
           else
             # Your working specific case code
             SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
