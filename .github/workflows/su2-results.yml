@@ -235,89 +235,91 @@ jobs:
       - name: Update V&V Listing
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
+          # Verify yq installation
           if ! command -v yq &>/dev/null || yq --version | grep -q "python"; then
             echo "::error::yq (Go version) not installed"
             exit 1
           fi
 
+          VANDV_YML="_data/vandv.yml"
+
+          # Verify file exists and is valid YAML
+          if [ ! -f "${VANDV_YML}" ]; then
+            echo "::error::YAML file ${VANDV_YML} not found"
+            exit 1
+          fi
+
+          # Create backup
+          cp "${VANDV_YML}" "${VANDV_YML}.bak"
+
           if [ "${{ inputs.flow_condition }}" == "All" ]; then
-            VANDV_YML="_data/vandv.yml"
             NEW_SECTION_TITLE="All Validation Cases"
             NEW_ENTRY="All_Validation_Cases"
 
-            # Create backup
-            cp "${VANDV_YML}" "${VANDV_YML}.bak"
-
-            # Verify YAML structure
-            if ! yq eval '.' "${VANDV_YML}" >/dev/null 2>&1; then
-              echo "::error::Invalid YAML structure in ${VANDV_YML}"
+            # Use a temporary file approach for absolute safety
+            TEMP_FILE=$(mktemp)
+            
+            # Process the YAML with explicit structure preservation
+            yq eval '
+              if (.[] | select(.title == "'"${NEW_SECTION_TITLE}"'") | length > 0 then
+                . # Do nothing if section exists
+              else
+                . += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
+              end
+            ' "${VANDV_YML}" > "${TEMP_FILE}"
+            
+            # Verify the operation was successful
+            if [ $? -ne 0 ]; then
+              echo "::error::Failed to process YAML file"
+              rm -f "${TEMP_FILE}"
               exit 1
             fi
-
-            # Improved section existence check
-            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
-            if [ -z "${SECTION_EXISTS}" ] || [ "${SECTION_EXISTS}" -eq 0 ]; then
-              echo "Adding new '${NEW_SECTION_TITLE}' section..."
-              
-              # SAFER way to append new section without affecting existing ones
-              yq eval -i '
-                . as $root |
-                if ($root | map(select(.title == "'"${NEW_SECTION_TITLE}"'")) | length) == 0 then
-                  $root + [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]
-                else
-                  $root
-                end
-              ' "${VANDV_YML}"
-              
-              # Verify the update
-              UPDATED_SECTION=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
-              if [ -z "${UPDATED_SECTION}" ] || [ "${UPDATED_SECTION}" -eq 0 ]; then
-                echo "::error::Failed to add new section to YAML"
-                mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
-                exit 1
-              fi
-              
-              echo "Successfully added '${NEW_SECTION_TITLE}' section"
-            else
-              echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
+            
+            # Verify the section was added (if needed)
+            if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${TEMP_FILE}") -eq 0 ] && 
+              [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}") -eq 0 ]; then
+              echo "::error::Failed to add new section"
+              rm -f "${TEMP_FILE}"
+              exit 1
             fi
+            
+            # Replace original file only after successful verification
+            mv "${TEMP_FILE}" "${VANDV_YML}"
+            echo "Successfully updated YAML structure"
+
           else
-            # Define paths and variables
+            # Your existing specific case code that works
             SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
-            VANDV_YML="_data/vandv.yml"
             CASE_CODE="$SANITIZED_CASE_CODE"
             FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
 
-            # Create backup
-            cp "${VANDV_YML}" "${VANDV_YML}.bak"
-
-            # Verify YAML structure first
-            if ! yq eval '.' "${VANDV_YML}" >/dev/null 2>&1; then
-              echo "::error::Invalid YAML structure in ${VANDV_YML}"
-              exit 1
-            fi
-
-            # Check if case already exists using yq
-            EXISTS=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
-            if [ -n "${EXISTS}" ]; then
+            # Check if case exists
+            if [ $(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\") | length" "${VANDV_YML}") -ne 0 ]; then
               echo "Case ${CASE_CODE} already exists. Skipping update."
               rm -f "${VANDV_YML}.bak"
               exit 0
             fi
 
-            # Update YAML using yq only
-            yq eval -i ".[] |= (select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"])" "${VANDV_YML}"
-
-            # Verify the update
-            UPDATED=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
-            if [ -z "${UPDATED}" ]; then
+            # Update specific flow type section using temp file
+            TEMP_FILE=$(mktemp)
+            yq eval '
+              .[] |= (
+                select(.title == "'"${FLOW_TYPE}"'") |
+                .vandv += ["'"${CASE_CODE}"'"]
+              )
+            ' "${VANDV_YML}" > "${TEMP_FILE}"
+            
+            # Verify update
+            if [ $(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\") | length" "${TEMP_FILE}") -eq 0 ]; then
               echo "::error::Failed to add case code to YAML"
-              mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
+              rm -f "${TEMP_FILE}"
               exit 1
             fi
+            
+            mv "${TEMP_FILE}" "${VANDV_YML}"
           fi
 
-          echo "Successfull addition to vandv.yml"
+          echo "Successful update to vandv.yml"
           rm -f "${VANDV_YML}.bak"
 
       - name: Commit and push changes
