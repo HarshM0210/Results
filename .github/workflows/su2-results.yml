@@ -1,16 +1,28 @@
-name: Publish SU2 Validation Results
+name: Publish SU2 Validation Cases Results
 
 on:
   workflow_dispatch:
     inputs:
+      branch_name:
+        description: "SU2 Branch Checked Out (e.g., master, develop)"
+        required: true
+        type: string
       case_code:
         description: "Validation Case Code (e.g., 2DML)"
         required: true
-        type: string
+        type: choice
+        options:
+          - 2DML
+          - ASBL
+          - All
       case_name:
         description: "Validation Case Name (e.g. 2D Mixing Layer)"
         required: true
-        type: string
+        type: choice
+        options:
+          - 2D Mixing Layer
+          - Axisymmetric Separated Boundary Layer
+          - All
       flow_condition:
         description: "Incompressible Flow or Compressible Flow"
         required: true
@@ -18,6 +30,7 @@ on:
         options:
           - Incompressible Flow
           - Compressible Flow
+          - All
       author_name:
         description: "Author's Name (e.g. Harsh)"
         required: true
@@ -27,15 +40,32 @@ jobs:
   process-and-publish:
     runs-on: ubuntu-latest
     steps:
-      # --- Step 1: Checkout Default Branch (e.g., main) ---
+      - name: Validate Inputs
+        run: |
+          if [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.case_name }}" != "All" ]; then
+            echo "::error::Cannot specify 'All' case code with specific case name"
+            exit 1
+          fi
+          if [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.case_name }}" == "All" ]; then
+            echo "::error::Cannot specify 'All' case name with specific case code"
+            exit 1
+          fi
+          if [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.flow_condition }}" == "All" ]; then
+            echo "::error::Cannot specify 'All' flow condition with specific case code"
+            exit 1
+          fi
+          if [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.flow_condition }}" != "All" ]; then
+            echo "::error::Cannot specify 'All' case code with specific flow condition"
+            exit 1
+          fi
+
       - name: Checkout Main Branch
         uses: actions/checkout@v4
 
-      # --- Step 2: Verify Target Branch Exists ---
-      - name: Check if Target Branch exists
+      - name: Check If Target Branch Exists
         id: branch-check
         env:
-          TARGET_BRANCH: "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
+          TARGET_BRANCH: "ValidationCases_${{ github.event.inputs.branch_name}}_${{ github.event.inputs.author_name }}"
         run: |
           if git ls-remote --heads origin $TARGET_BRANCH | grep -q $TARGET_BRANCH; then
             echo "Branch $TARGET_BRANCH exists. Proceeding..."
@@ -46,18 +76,87 @@ jobs:
             exit 1
           fi
 
-      # --- Step 3: Checkout Target Branch (if exists) ---
       - name: Checkout Target Branch
         if: steps.branch-check.outputs.branch_exists == 'true'
         uses: actions/checkout@v4
         with:
-          ref: "${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
+          ref: "ValidationCases_${{ github.event.inputs.branch_name}}_${{ github.event.inputs.author_name }}"
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
           fetch-depth: 0
 
-      - name: Prepare Markdown File
-        if: steps.branch-check.outputs.branch_exists == 'true'
+      - name: Prepare Markdown File For All Validation Cases
+        if: steps.branch-check.outputs.branch_exists == 'true' && inputs.case_code == 'All' && inputs.case_name == 'All'
+        run: |
+          BASE_PATH="vandv_files"
+          TEMPLATE="template_README.md"
+          OUTPUT_DIR="_vandv"
+          OUTPUT_FILE="${OUTPUT_DIR}/All_Validation_Cases.md"
+
+          for case_dir in "$BASE_PATH"/*/; do
+            if [ -d "$case_dir" ] && [[ "$(basename "$case_dir")" != .* ]]; then
+              casecode=$(basename "$case_dir")
+              IMAGE_COUNT=0
+              IMAGE_DIR="vandv_files/${casecode}"
+
+              # Validate inputs and paths
+              if [ ! -f "${TEMPLATE}" ]; then
+                echo "::error::Template ${TEMPLATE} not found!"
+                exit 1
+              fi
+
+              if [ ! -d "${OUTPUT_DIR}" ]; then
+                echo "::error::Directory ${OUTPUT_DIR} must exist in the repository. Deploy it first."
+                exit 1
+              fi
+
+              if [ ! -d "${IMAGE_DIR}" ]; then
+                echo "::error::Image directory ${IMAGE_DIR} not found!"
+                exit 1
+              fi
+
+              if ! grep -q '{Case_Code}' "${TEMPLATE}" || ! grep -q 'Your Case Study Title' "${TEMPLATE}"; then
+                echo "::error::Template missing required placeholders"
+                exit 1
+              fi
+
+              # Update front matter and write to new file
+              sed \
+                -e "s/{Case_Code}/All_Validation_Cases/g" \
+                -e "s/Your Case Study Title/All Validation Cases/g" \
+                "${TEMPLATE}" > "${OUTPUT_FILE}"
+
+              # Count images first
+              IMAGE_COUNT=$(find "${IMAGE_DIR}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | wc -l)
+
+              # Strict validation
+              if [ "${IMAGE_COUNT}" -eq 0 ]; then
+                echo "::error::ABORTING: No plot images found in ${IMAGE_DIR}/"
+                rm -f "${OUTPUT_FILE}"  # Delete the empty Markdown file
+                exit 1
+              fi
+
+              echo -e "\n## Results Plots For ${casecode}\n" >> "${OUTPUT_FILE}"
+
+              # Dynamically find and process images
+              find "${IMAGE_DIR}" -type d -name "${casecode}_*" | sort | while read -r dir; do
+                folder_name=$(basename "${dir}")
+                echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
+                
+                # Process images with correct relative path
+                find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
+                  # Calculate relative path
+                  rel_path="../${img#*/vandv_files/}"
+                  echo "<img src=\"${rel_path}\" alt=\"${folder_name} - $(basename "${img}")\" style=\"width:80%; display: block; margin: 0 auto;\">" >> "${OUTPUT_FILE}"
+                  echo "" >> "${OUTPUT_FILE}"
+                done
+              done
+
+              # Verify creation
+              echo "Generated ${OUTPUT_FILE}"
+
+      - name: Prepare Markdown File For Specific Validation Case
+        if: steps.branch-check.outputs.branch_exists == 'true' && inputs.case_code != 'All' && inputs.case_name != 'All'
         run: |
           # Initialize variables
           IMAGE_COUNT=0
@@ -97,7 +196,7 @@ jobs:
             -e "s/Your Case Study Title/${SANITIZED_CASE_NAME}/g" \
             "${TEMPLATE}" > "${OUTPUT_FILE}"
 
-          # Count images
+          # Count images first
           IMAGE_COUNT=$(find "${IMAGE_DIR}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | wc -l)
 
           # Strict validation
@@ -114,7 +213,7 @@ jobs:
             folder_name=$(basename "${dir}")
             echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
             
-            # Process images with their relative path
+            # Process images with correct relative path
             find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
               # Calculate relative path
               rel_path="../${img#*/vandv_files/}"
@@ -135,61 +234,96 @@ jobs:
       - name: Update V&V Listing
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
-          # Ensure we're using the modern Go version of yq
           if ! command -v yq &>/dev/null || yq --version | grep -q "python"; then
             echo "::error::yq (Go version) not installed"
             exit 1
           fi
 
-          # Define paths and variables
-          SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
-          VANDV_YML="_data/vandv.yml"
-          CASE_CODE="$SANITIZED_CASE_CODE"
-          FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
+          if [ "${{ inputs.flow_condition }}" == "All" ]; then
+            VANDV_YML="_data/vandv.yml"
+            NEW_SECTION_TITLE="All Validation Cases"
+            NEW_ENTRY="All_Validation_Cases"
 
-          # Create backup
-          cp "${VANDV_YML}" "${VANDV_YML}.bak"
+            # Create backup
+            cp "${VANDV_YML}" "${VANDV_YML}.bak"
 
-          # Verify YAML structure first
-          if ! yq eval '.' "${VANDV_YML}" >/dev/null 2>&1; then
-            echo "::error::Invalid YAML structure in ${VANDV_YML}"
-            exit 1
+            # Verify YAML structure
+            if ! yq eval '.' "${VANDV_YML}" >/dev/null 2>&1; then
+              echo "::error::Invalid YAML structure in ${VANDV_YML}"
+              exit 1
+            fi
+
+            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}")
+            if [ -z "${SECTION_EXISTS}" ]; then
+              echo "Adding new '${NEW_SECTION_TITLE}' section..."
+              
+              # Add new section with the single entry
+              yq eval -i ".[] += {\"title\": \"${NEW_SECTION_TITLE}\", \"vandv\": [\"${NEW_ENTRY}\"]}" "${VANDV_YML}"
+              
+              # Verify the update
+              UPDATED_SECTION=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}")
+              if [ -z "${UPDATED_SECTION}" ]; then
+                echo "::error::Failed to add new section to YAML"
+                mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
+                exit 1
+              fi
+              
+              echo "Successfully added '${NEW_SECTION_TITLE}' section"
+            else
+              echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
+            fi
+
+          else
+            # Define paths and variables
+            SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
+            VANDV_YML="_data/vandv.yml"
+            CASE_CODE="$SANITIZED_CASE_CODE"
+            FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
+
+            # Create backup
+            cp "${VANDV_YML}" "${VANDV_YML}.bak"
+
+            # Verify YAML structure first
+            if ! yq eval '.' "${VANDV_YML}" >/dev/null 2>&1; then
+              echo "::error::Invalid YAML structure in ${VANDV_YML}"
+              exit 1
+            fi
+
+            # Check if case already exists using yq
+            EXISTS=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+            if [ -n "${EXISTS}" ]; then
+              echo "Case ${CASE_CODE} already exists. Skipping update."
+              rm -f "${VANDV_YML}.bak"
+              exit 0
+            fi
+
+            # Update YAML using yq only
+            yq eval -i ".[] |= (select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"])" "${VANDV_YML}"
+
+            # Verify the update
+            UPDATED=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
+            if [ -z "${UPDATED}" ]; then
+              echo "::error::Failed to add case code to YAML"
+              mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
+              exit 1
+            fi
           fi
 
-          # Check if case already exists using yq
-          EXISTS=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
-          if [ -n "${EXISTS}" ]; then
-            echo "Case ${CASE_CODE} already exists. Skipping update."
-            rm -f "${VANDV_YML}.bak"
-            exit 0
-          fi
-
-          # Update YAML using yq only
-          yq eval -i ".[] |= (select(.title == \"${FLOW_TYPE}\").vandv += [\"${CASE_CODE}\"])" "${VANDV_YML}"
-
-          # Verify the update
-          UPDATED=$(yq eval ".[] | select(.title == \"${FLOW_TYPE}\").vandv[] | select(. == \"${CASE_CODE}\")" "${VANDV_YML}")
-          if [ -z "${UPDATED}" ]; then
-            echo "::error::Failed to add case code to YAML"
-            mv "${VANDV_YML}.bak" "${VANDV_YML}"  # Restore backup
-            exit 1
-          fi
-
-          echo "Successfully added ${CASE_CODE} to ${FLOW_TYPE} section"
+          echo "Successfull addition to vandv.yml"
           rm -f "${VANDV_YML}.bak"
 
-      - name: Commit and Push Changes
+      - name: Commit and push changes
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com" 
+          git config --global user.email "actions@github.com"
 
           git add .
           git status
 
           if ! git diff-index --quiet HEAD --; then
-            git commit -m "Automated update: Added ${{ github.event.inputs.case_code }} case"
-            git push origin HEAD:"${{ github.event.inputs.case_code }}_${{ github.event.inputs.author_name }}"
+            git commit -m "Automated Update"
+            git push origin HEAD:"ValidationCases_${{ github.event.inputs.branch_name}}_${{ github.event.inputs.author_name }}"
           else
             echo "No changes to commit"
           fi
