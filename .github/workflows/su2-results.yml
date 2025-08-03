@@ -254,12 +254,12 @@ jobs:
               exit 1
             fi
 
-            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}")
-            if [ -z "${SECTION_EXISTS}" ]; then
+            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
+            if [ -z "${SECTION_EXISTS}" ] || [ "${SECTION_EXISTS}" -eq 0 ]; then
               echo "Adding new '${NEW_SECTION_TITLE}' section..."
               
               # Add new section with the single entry
-              yq eval -i ".[] += {\"title\": \"${NEW_SECTION_TITLE}\", \"vandv\": [\"${NEW_ENTRY}\"]}" "${VANDV_YML}"
+              yq eval -i ". += {\"title\": \"${NEW_SECTION_TITLE}\", \"vandv\": [\"${NEW_ENTRY}\"]}" "${VANDV_YML}"
               
               # Verify the update
               UPDATED_SECTION=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}")
