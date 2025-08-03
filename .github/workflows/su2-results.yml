@@ -258,31 +258,44 @@ jobs:
             NEW_ENTRY="All_Validation_Cases"
 
             # Check if section exists
-            if yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${VANDV_YML}" >/dev/null; then
+            SECTION_EXISTS=$(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}")
+            
+            if [ "${SECTION_EXISTS}" -gt 0 ]; then
               echo "Section '${NEW_SECTION_TITLE}' already exists. No changes made."
             else
               echo "Adding new '${NEW_SECTION_TITLE}' section..."
               
-              # SAFEST METHOD: Use temp file
+              # SAFEST METHOD: Use explicit array construction
               TEMP_FILE=$(mktemp)
               
-              # Get existing content
-              yq eval '.' "${VANDV_YML}" > "${TEMP_FILE}"
+              # First get existing content (excluding our new section if it exists)
+              yq eval 'del(.[] | select(.title == "'"${NEW_SECTION_TITLE}"'"))' "${VANDV_YML}" > "${TEMP_FILE}"
               
-              # Append new section
+              # Then append our new section
               yq eval -i '. += [{"title": "'"${NEW_SECTION_TITLE}"'", "vandv": ["'"${NEW_ENTRY}"'"]}]' "${TEMP_FILE}"
               
-              # Verify and replace
-              if yq eval '.' "${TEMP_FILE}" >/dev/null && 
-                yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\")" "${TEMP_FILE}" >/dev/null; then
-                mv "${TEMP_FILE}" "${VANDV_YML}"
-                echo "Successfully added new section"
-              else
-                echo "::error::Failed to update YAML"
+              # Verify we have both old and new content
+              OLD_COUNT=$(yq eval 'length' "${VANDV_YML}")
+              NEW_COUNT=$(yq eval 'length' "${TEMP_FILE}")
+              
+              if [ "${NEW_COUNT}" -lt "${OLD_COUNT}" ]; then
+                echo "::error::Content loss detected during update"
                 rm -f "${TEMP_FILE}"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"
                 exit 1
               fi
+              
+              # Verify new section exists
+              if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${TEMP_FILE}") -eq 0 ]; then
+                echo "::error::Failed to add new section"
+                rm -f "${TEMP_FILE}"
+                mv "${VANDV_YML}.bak" "${VANDV_YML}"
+                exit 1
+              fi
+              
+              # Only replace if all checks pass
+              mv "${TEMP_FILE}" "${VANDV_YML}"
+              echo "Successfully added new section while preserving existing content"
             fi
           else
             # Your working specific case code
