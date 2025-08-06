@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       branch_name:
-        description: "SU2 Branch Checked Out (e.g., master, develop)"
+        description: "SU2 Branch Checked Out (e.g. master, develop)"
         required: true
         type: string
       case_code:
-        description: "Validation Case Code (e.g., 2DML)"
+        description: "Validation Case Code (e.g. 2DML)"
         required: true
         type: choice
         options:
@@ -59,13 +59,29 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout Main Branch
+      - name: Sanitize Author's Name
+        run: |
+          SANITIZED=$(echo "${{ inputs.author_name }}" | 
+            tr -d '\n' |                # Remove newlines
+            tr ' ' '_' |                # Convert spaces
+            tr -s '_' |                 # Collapse multiple ____
+            sed 's/^_\+//; s/_\+$//' |  # Trim leading/trailing _
+            tr -dc '[:alnum:]_' |       # Strict character set
+            head -c 50)
+
+          # Fallback Conditions
+          if [[ -z "$SANITIZED" || "$SANITIZED" =~ ^[0-9_]+$ ]]; then
+            SANITIZED="Automated_Update"
+          fi
+          echo "SANITIZED_AUTHOR=${SANITIZED}" >> $GITHUB_ENV
+
+      - name: Checkout Default Branch
         uses: actions/checkout@v4
 
       - name: Check If Target Branch Exists
         id: branch-check
         env:
-          TARGET_BRANCH: "ValidationCases_${{ github.event.inputs.branch_name}}_${{ github.event.inputs.author_name }}"
+          TARGET_BRANCH: "ValidationCases_${{ github.event.inputs.branch_name}}_${{ env.SANITIZED_AUTHOR }}"
         run: |
           if git ls-remote --heads origin $TARGET_BRANCH | grep -q $TARGET_BRANCH; then
             echo "Branch $TARGET_BRANCH exists. Proceeding..."
@@ -80,7 +96,7 @@ jobs:
         if: steps.branch-check.outputs.branch_exists == 'true'
         uses: actions/checkout@v4
         with:
-          ref: "ValidationCases_${{ github.event.inputs.branch_name}}_${{ github.event.inputs.author_name }}"
+          ref: "ValidationCases_${{ github.event.inputs.branch_name}}_${{ env.SANITIZED_AUTHOR }}"
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
           fetch-depth: 0
@@ -129,7 +145,6 @@ jobs:
               # Count images first
               IMAGE_COUNT=$(find "${IMAGE_DIR}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | wc -l)
 
-              # Strict validation
               if [ "${IMAGE_COUNT}" -eq 0 ]; then
                 echo "::error::ABORTING: No plot images found in ${IMAGE_DIR}/"
                 rm -f "${OUTPUT_FILE}"  # Delete the empty Markdown file
@@ -138,12 +153,12 @@ jobs:
 
               echo -e "\n## Results Plots For ${casecode}\n" >> "${OUTPUT_FILE}"
 
-              # Dynamically find and process images
+              # Find and process images
               find "${IMAGE_DIR}" -type d -name "${casecode}_*" | sort | while read -r dir; do
                 folder_name=$(basename "${dir}")
                 echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
                 
-                # Process images with correct relative path
+                # Process images with their relative path
                 find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
                   # Calculate relative path
                   rel_path="../${img#*/vandv_files/}"
@@ -200,7 +215,6 @@ jobs:
           # Count images first
           IMAGE_COUNT=$(find "${IMAGE_DIR}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | wc -l)
 
-          # Strict validation
           if [ "${IMAGE_COUNT}" -eq 0 ]; then
             echo "::error::ABORTING: No plot images found in ${IMAGE_DIR}/"
             rm -f "${OUTPUT_FILE}"  # Delete the empty Markdown file
@@ -209,12 +223,12 @@ jobs:
 
           echo -e "\n## Results Plots\n" >> "${OUTPUT_FILE}"
 
-          # Dynamically find and process images
+          # Find and process images
           find "${IMAGE_DIR}" -type d -name "${SANITIZED_CASE_CODE}_*" | sort | while read -r dir; do
             folder_name=$(basename "${dir}")
             echo -e "\n### ${folder_name}\n" >> "${OUTPUT_FILE}"
-            
-            # Process images with correct relative path
+
+            # Process images with their relative path
             find "${dir}" -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | sort | while read -r img; do
               # Calculate relative path
               rel_path="../${img#*/vandv_files/}"
@@ -223,9 +237,8 @@ jobs:
             done
           done
 
-
           # Verify creation
-          echo "Generated ${OUTPUT_FILE} with ${IMAGE_COUNT} images linked."
+          echo "Generated ${OUTPUT_FILE}"
 
       - name: Install yq (Go version)
         run: |
@@ -267,11 +280,12 @@ jobs:
               
               # Create new section in a temporary file
               TEMP_FILE=$(mktemp)
+              trap 'rm -f "${TEMP_FILE}" "${VANDV_YML}.tmp"' EXIT
               echo "- title: ${NEW_SECTION_TITLE}" > "${TEMP_FILE}"
               echo "  vandv:" >> "${TEMP_FILE}"
               echo "    - ${NEW_ENTRY}" >> "${TEMP_FILE}"
 
-              # Merge with existing content using yq
+              # Merge with existing content
               yq eval-all 'select(fileIndex == 0) *+ select(fileIndex == 1)' "${VANDV_YML}" "${TEMP_FILE}" > "${VANDV_YML}.tmp"
               
               # Verify merge was successful
@@ -280,6 +294,7 @@ jobs:
               
               if [ "${MERGED_COUNT}" -le "${ORIGINAL_COUNT}" ]; then
                 echo "::error::Failed to properly merge new section"
+                rm -f "${TEMP_FILE}" "${VANDV_YML}.tmp"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"
                 exit 1
               fi
@@ -287,6 +302,7 @@ jobs:
               # Verify new section exists in merged file
               if [ $(yq eval ".[] | select(.title == \"${NEW_SECTION_TITLE}\") | length" "${VANDV_YML}.tmp") -eq 0 ]; then
                 echo "::error::New section not found in merged file"
+                rm -f "${TEMP_FILE}" "${VANDV_YML}.tmp"
                 mv "${VANDV_YML}.bak" "${VANDV_YML}"
                 exit 1
               fi
@@ -297,9 +313,7 @@ jobs:
               rm -f "${TEMP_FILE}"
             fi
           else
-            # Existing specific case code remains the same
-            SANITIZED_CASE_CODE=$(echo "${{ github.event.inputs.case_code }}" | tr -dc '[:alnum:]' | tr '[:lower:]' '[:upper:]')
-            CASE_CODE="$SANITIZED_CASE_CODE"
+            CASE_CODE="${{ github.event.inputs.case_code }}"
             FLOW_TYPE="${{ github.event.inputs.flow_condition }}"
 
             # Check if case exists
@@ -325,7 +339,7 @@ jobs:
           echo "Successful update to vandv.yml"
           rm -f "${VANDV_YML}.bak"
 
-      - name: Commit and push changes
+      - name: Commit And Push Changes
         if: steps.branch-check.outputs.branch_exists == 'true'
         run: |
           git config --global user.name "GitHub Actions"
@@ -336,7 +350,7 @@ jobs:
 
           if ! git diff-index --quiet HEAD --; then
             git commit -m "Automated Update"
-            git push origin HEAD:"ValidationCases_${{ github.event.inputs.branch_name}}_${{ github.event.inputs.author_name }}"
+            git push origin HEAD:"ValidationCases_${{ github.event.inputs.branch_name}}_${{ env.SANITIZED_AUTHOR }}"
           else
             echo "No changes to commit"
           fi
