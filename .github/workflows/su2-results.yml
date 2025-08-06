@@ -45,22 +45,26 @@ jobs:
     steps:
       - name: Validate Inputs
         run: |
+          echo "Validating workflow inputs..."
+          ERROR_MSG=""
+
           if [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.case_name }}" != "All" ]; then
-            echo "::error::Cannot specify 'All' case code with specific case name"
-            exit 1
-          fi
-          if [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.case_name }}" == "All" ]; then
-            echo "::error::Cannot specify 'All' case name with specific case code"
-            exit 1
+            ERROR_MSG="Invalid Combination: 'All' case code cannot be paired with a specific case name (${CASE_NAME})"
+          elif [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.case_name }}" == "All" ]; then
+            ERROR_MSG="Invalid Combination: Specific case code (${CASE_CODE}) cannot be paired with 'All' case name"
           fi
           if [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.flow_condition }}" == "All" ]; then
-            echo "::error::Cannot specify 'All' flow condition with specific case code"
+            ERROR_MSG="Invalid Combination: Specific case code (${CASE_CODE}) cannot be paired with 'All' flow condition"
+          elif [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.flow_condition }}" != "All" ]; then
+            ERROR_MSG="Invalid Combination: 'All' case code must also have 'All' flow condition"
+          fi
+
+          if [[ -n "$ERROR_MSG" ]]; then
+            echo "::error::$ERROR_MSG"
+            echo "Tip: Use either all 'All' values or all specific values for a single run."
             exit 1
           fi
-          if [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.flow_condition }}" != "All" ]; then
-            echo "::error::Cannot specify 'All' case code with specific flow condition"
-            exit 1
-          fi
+          echo "Inputs are valid. Continuing..."
 
       - name: Sanitize Author's Name
         run: |
