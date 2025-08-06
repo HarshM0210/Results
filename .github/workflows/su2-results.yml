@@ -36,6 +36,9 @@ on:
         required: true
         type: string
 
+env:
+  SANITIZED_AUTHOR: "Automated_Update"
+
 jobs:
   process-and-publish:
     runs-on: ubuntu-latest
