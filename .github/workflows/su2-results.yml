@@ -46,24 +46,35 @@ jobs:
       - name: Validate Inputs
         run: |
           echo "Validating workflow inputs..."
-          ERROR_MSG=""
 
-          if [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.case_name }}" != "All" ]; then
-            ERROR_MSG="Invalid Combination: 'All' case code cannot be paired with a specific case name (${CASE_NAME})"
-          elif [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.case_name }}" == "All" ]; then
-            ERROR_MSG="Invalid Combination: Specific case code (${CASE_CODE}) cannot be paired with 'All' case name"
-          fi
-          if [ "${{ inputs.case_code }}" != "All" ] && [ "${{ inputs.flow_condition }}" == "All" ]; then
-            ERROR_MSG="Invalid Combination: Specific case code (${CASE_CODE}) cannot be paired with 'All' flow condition"
-          elif [ "${{ inputs.case_code }}" == "All" ] && [ "${{ inputs.flow_condition }}" != "All" ]; then
-            ERROR_MSG="Invalid Combination: 'All' case code must also have 'All' flow condition"
+          CASE_CODE="${{ inputs.case_code }}"
+          CASE_NAME="${{ inputs.case_name }}"
+          FLOW_CONDITION="${{ inputs.flow_condition }}"
+
+          ERRORS=""
+
+          if [[ "$CASE_CODE" == "All" && "$CASE_NAME" != "All" ]]; then
+            ERRORS+="\n'All' case code cannot be paired with a specific case name ($CASE_NAME)"
           fi
 
-          if [[ -n "$ERROR_MSG" ]]; then
-            echo "::error::$ERROR_MSG"
+          if [[ "$CASE_CODE" != "All" && "$CASE_NAME" == "All" ]]; then
+            ERRORS+="\nSpecific case code ($CASE_CODE) cannot be paired with 'All' case name"
+          fi
+
+          if [[ "$CASE_CODE" != "All" && "$FLOW_CONDITION" == "All" ]]; then
+            ERRORS+="\nSpecific case code ($CASE_CODE) cannot be paired with 'All' flow condition"
+          fi
+
+          if [[ "$CASE_CODE" == "All" && "$FLOW_CONDITION" != "All" ]]; then
+            ERRORS+="\n'All' case code must also have 'All' flow condition"
+          fi
+
+          if [[ -n "$ERRORS" ]]; then
+            echo "::error::Input Validation Failed:$ERRORS"
             echo "Tip: Use either all 'All' values or all specific values for a single run."
             exit 1
           fi
+
           echo "Inputs are valid. Continuing..."
 
       - name: Sanitize Author's Name
