@@ -47,9 +47,9 @@ jobs:
         run: |
           echo "Validating workflow inputs..."
 
-          CASE_CODE="${{ inputs.case_code }}"
-          CASE_NAME="${{ inputs.case_name }}"
-          FLOW_CONDITION="${{ inputs.flow_condition }}"
+          CASE_CODE="${{ github.event.inputs.case_code }}"
+          CASE_NAME="${{ github.event.inputs.case_name }}"
+          FLOW_CONDITION="${{ github.event.inputs.flow_condition }}"
 
           ERRORS=""
 
@@ -79,7 +79,7 @@ jobs:
 
       - name: Sanitize Author's Name
         run: |
-          SANITIZED=$(echo "${{ inputs.author_name }}" | 
+          SANITIZED=$(echo "${{ github.event.inputs.author_name }}" | 
             tr -d '\n' |                # Remove newlines
             tr ' ' '_' |                # Convert spaces
             tr -s '_' |                 # Collapse multiple ____
@@ -284,7 +284,7 @@ jobs:
           # Create backup
           cp "${VANDV_YML}" "${VANDV_YML}.bak"
 
-          if [ "${{ inputs.flow_condition }}" == "All" ]; then
+          if [ "${{ github.event.inputs.flow_condition }}" == "All" ]; then
             NEW_SECTION_TITLE="All Validation Cases"
             NEW_ENTRY="All_Validation_Cases"
 
