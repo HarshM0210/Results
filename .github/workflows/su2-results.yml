@@ -16,7 +16,6 @@ on:
         type: choice
         options:
           - 2DML
-          - ASBL
           - All
       case_name:
         description: "Validation Case Name (e.g. 2D Mixing Layer)"
@@ -24,7 +23,6 @@ on:
         type: choice
         options:
           - 2D Mixing Layer
-          - Axisymmetric Separated Boundary Layer
           - All
       flow_condition:
         description: "Incompressible Flow or Compressible Flow"
