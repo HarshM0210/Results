@@ -2,7 +2,6 @@
   vandv:
     - home
     - Contribute
-
 - title: Compressible Flow
   vandv:
     - MMS_FVM_Navier_Stokes
@@ -12,7 +11,9 @@
     - swbli
     - LM_transition
     - dsma661
-
 - title: Incompressible Flow
   vandv:
     - SANDIA_jet
+- title: All Validation Cases
+  vandv:
+    - All_Validation_Cases
